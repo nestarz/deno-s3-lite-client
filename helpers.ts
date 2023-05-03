@@ -64,9 +64,9 @@ export function isValidPrefix(prefix: string) {
  * Convert some binary data to a hex string
  */
 export function bin2hex(binary: Uint8Array) {
-  return Array.from(binary).map((b) => b.toString(16).padStart(2, "0")).join(
-    "",
-  );
+  return Array.from(binary)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 export function sanitizeETag(etag = "") {
@@ -79,8 +79,28 @@ export function sanitizeETag(etag = "") {
   };
   return etag.replace(
     /^("|&quot;|&#34;)|("|&quot;|&#34;)$/g,
-    (m) => replaceChars[m],
+    (m) => replaceChars[m]
   );
+}
+
+export function decodeXMLObjectKey(key: string | undefined) {
+  return key
+    ?.replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#13;|&#x0D;/gi, "\r")
+    .replace(/&#10;|&#x0A;/gi, "\n");
+}
+
+export function encodeObjectName(key: string) {
+  const res = encodeURIComponent(key)
+    .replace(/%2F/g, "/")
+    .replace(/'/g, "%27")
+    .replace(/\(/g, "%28")
+    .replace(/\)/g, "%29");
+  return res;
 }
 
 export function getVersionId(headers: Headers): string | null {
@@ -94,11 +114,14 @@ export function makeDateLong(date?: Date) {
   // Gives format like: '2017-08-07T16:28:59.889Z'
   const dateStr = date.toISOString();
 
-  return dateStr.substr(0, 4) +
+  return (
+    dateStr.substr(0, 4) +
     dateStr.substr(5, 2) +
     dateStr.substr(8, 5) +
     dateStr.substr(14, 2) +
-    dateStr.substr(17, 2) + "Z";
+    dateStr.substr(17, 2) +
+    "Z"
+  );
 }
 
 /** Create a Date string with format: 'YYYYMMDD' */

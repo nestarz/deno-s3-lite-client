@@ -1,3 +1,4 @@
+import { decodeXMLObjectKey } from "./helpers.ts";
 import { parse as parseXML } from "./xml-parser.ts";
 
 /**
@@ -78,7 +79,7 @@ export async function parseServerError(response: Response): Promise<ServerError>
     const code = errorRoot.children.find((c) => c.name === "Code")?.content ?? "UnknownErrorCode";
     const message = errorRoot.children.find((c) => c.name === "Message")?.content ??
       "The error message could not be determined.";
-    const key = errorRoot.children.find((c) => c.name === "Key")?.content;
+    const key = decodeXMLObjectKey(errorRoot.children.find((c) => c.name === "Key")?.content);
     const bucketName = errorRoot.children.find((c) => c.name === "BucketName")?.content;
     const resource = errorRoot.children.find((c) => c.name === "Resource")?.content; // e.g. the object key
     const region = errorRoot.children.find((c) => c.name === "Region")?.content;

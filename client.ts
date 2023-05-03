@@ -2,12 +2,14 @@ import { TransformChunkSizes } from "./transform-chunk-sizes.ts";
 import { readableStreamFromIterable } from "./deps.ts";
 import * as errors from "./errors.ts";
 import {
+  decodeXMLObjectKey,
   isValidBucketName,
   isValidObjectName,
   isValidPort,
   makeDateLong,
   sanitizeETag,
   sha256digestHex,
+  encodeObjectName,
 } from "./helpers.ts";
 import { ObjectUploader } from "./object-uploader.ts";
 import { presignV4, signV4 } from "./signing.ts";
@@ -67,7 +69,9 @@ const metadataKeys = [
  *
  * Custom keys should be like "x-amz-meta-..."
  */
-export type ObjectMetadata = { [K in typeof metadataKeys[number]]?: string } & { [key: string]: string };
+export type ObjectMetadata = {
+  [K in (typeof metadataKeys)[number]]?: string;
+} & { [key: string]: string };
 
 /** Response Header Overrides
  * These parameters can be used with an authenticated or presigned get object request, to
@@ -145,26 +149,37 @@ export class Client {
     }
     // Validate input params.
     if (
-      typeof params.endPoint !== "string" || params.endPoint.length === 0 ||
+      typeof params.endPoint !== "string" ||
+      params.endPoint.length === 0 ||
       params.endPoint.indexOf("/") !== -1
     ) {
       throw new errors.InvalidEndpointError(
-        `Invalid endPoint : ${params.endPoint}`,
+        `Invalid endPoint : ${params.endPoint}`
       );
     }
     if (params.port !== undefined && !isValidPort(params.port)) {
       throw new errors.InvalidArgumentError(`Invalid port : ${params.port}`);
     }
     if (params.accessKey && !params.secretKey) {
-      throw new errors.InvalidArgumentError(`If specifying access key, secret key must also be provided.`);
+      throw new errors.InvalidArgumentError(
+        `If specifying access key, secret key must also be provided.`
+      );
     }
-    if (params.accessKey && params.accessKey.startsWith("ASIA") && !params.sessionToken) {
-      throw new errors.InvalidArgumentError(`If specifying temporary access key, session token must also be provided.`);
+    if (
+      params.accessKey &&
+      params.accessKey.startsWith("ASIA") &&
+      !params.sessionToken
+    ) {
+      throw new errors.InvalidArgumentError(
+        `If specifying temporary access key, session token must also be provided.`
+      );
     }
 
     const defaultPort = params.useSSL ? 443 : 80;
     this.port = params.port ?? defaultPort;
-    this.host = params.endPoint.toLowerCase() + (this.port !== defaultPort ? `:${params.port}` : "");
+    this.host =
+      params.endPoint.toLowerCase() +
+      (this.port !== defaultPort ? `:${params.port}` : "");
     this.protocol = params.useSSL ? "https:" : "http:";
     this.accessKey = params.accessKey;
     this.#secretKey = params.secretKey ?? "";
@@ -178,7 +193,7 @@ export class Client {
     const bucketName = options?.bucketName ?? this.defaultBucket;
     if (bucketName === undefined || !isValidBucketName(bucketName)) {
       throw new errors.InvalidBucketNameError(
-        `Invalid bucket name: ${bucketName}`,
+        `Invalid bucket name: ${bucketName}`
       );
     }
     return bucketName;
@@ -198,18 +213,17 @@ export class Client {
     host: string;
     path: string;
   } {
-    const objectName = options.objectName
-      .split("/")
-      .map((v) => encodeURIComponent(v).replaceAll("(", "%28").replaceAll(")", "%29"))
-      .join("/");
+    const objectName = encodeObjectName(options.objectName);
     const bucketName = this.getBucketName(options);
     const host = this.pathStyle ? this.host : `${bucketName}.${this.host}`;
     const headers = options.headers ?? new Headers();
     headers.set("host", host);
-    const queryAsString = typeof options.query === "object"
-      ? new URLSearchParams(options.query).toString().replace("+", "%20") // Signing requires spaces become %20, never +
-      : (options.query);
-    const path = (this.pathStyle ? `/${bucketName}/${objectName}` : `/${objectName}`) +
+    const queryAsString =
+      typeof options.query === "object"
+        ? new URLSearchParams(options.query).toString().replace("+", "%20") // Signing requires spaces become %20, never +
+        : options.query;
+    const path =
+      (this.pathStyle ? `/${bucketName}/${objectName}` : `/${objectName}`) +
       (queryAsString ? `?${queryAsString}` : "");
     return { headers, host, path };
   }
@@ -217,7 +231,11 @@ export class Client {
   /**
    * Make a single request to S3
    */
-  public async makeRequest({ method, payload, ...options }: {
+  public async makeRequest({
+    method,
+    payload,
+    ...options
+  }: {
     method: "POST" | "GET" | "PUT" | "DELETE" | string;
     headers?: Headers;
     query?: string | Record<string, string>;
@@ -240,9 +258,7 @@ export class Client {
     const { headers, host, path } = this.buildRequestOptions(options);
     const statusCode = options.statusCode ?? 200;
 
-    if (
-      method === "POST" || method === "PUT" || method === "DELETE"
-    ) {
+    if (method === "POST" || method === "PUT" || method === "DELETE") {
       if (payload === undefined) {
         payload = new Uint8Array();
       } else if (typeof payload === "string") {
@@ -269,7 +285,7 @@ export class Client {
           secretKey: this.#secretKey,
           region: this.region,
           date,
-        }),
+        })
       );
     }
 
@@ -291,13 +307,13 @@ export class Client {
           response.status,
           "UnexpectedRedirect",
           `The server unexpectedly returned a redirect response. With AWS S3, this usually means you need to use a ` +
-            `region-specific endpoint like "s3.us-west-2.amazonaws.com" instead of "s3.amazonaws.com"`,
+            `region-specific endpoint like "s3.us-west-2.amazonaws.com" instead of "s3.amazonaws.com"`
         );
       }
       throw new errors.ServerError(
         response.status,
         "UnexpectedStatusCode",
-        `Unexpected response code from the server (expected ${statusCode}, got ${response.status} ${response.statusText}).`,
+        `Unexpected response code from the server (expected ${statusCode}, got ${response.status} ${response.statusText}).`
       );
     }
     if (!options.returnBody) {
@@ -314,14 +330,22 @@ export class Client {
    */
   async deleteObject(
     objectName: string,
-    options: { bucketName?: string; versionId?: string; governanceBypass?: boolean } = {},
+    options: {
+      bucketName?: string;
+      versionId?: string;
+      governanceBypass?: boolean;
+    } = {}
   ) {
     const bucketName = this.getBucketName(options);
     if (!isValidObjectName(objectName)) {
-      throw new errors.InvalidObjectNameError(`Invalid object name: ${objectName}`);
+      throw new errors.InvalidObjectNameError(
+        `Invalid object name: ${objectName}`
+      );
     }
 
-    const query: Record<string, string> = options.versionId ? { versionId: options.versionId } : {};
+    const query: Record<string, string> = options.versionId
+      ? { versionId: options.versionId }
+      : {};
     const headers = new Headers();
     if (options.governanceBypass) {
       headers.set("X-Amz-Bypass-Governance-Retention", "true");
@@ -340,7 +364,10 @@ export class Client {
   /**
    * Check if an object with the specified key exists.
    */
-  public async exists(objectName: string, options?: { bucketName?: string; versionId?: string }): Promise<boolean> {
+  public async exists(
+    objectName: string,
+    options?: { bucketName?: string; versionId?: string }
+  ): Promise<boolean> {
     try {
       await this.statObject(objectName, options);
       return true;
@@ -360,9 +387,17 @@ export class Client {
    */
   public getObject(
     objectName: string,
-    options?: { bucketName?: string; versionId?: string; responseParams?: ResponseOverrideParams },
+    options?: {
+      bucketName?: string;
+      versionId?: string;
+      responseParams?: ResponseOverrideParams;
+    }
   ): Promise<Response> {
-    return this.getPartialObject(objectName, { ...options, offset: 0, length: 0 });
+    return this.getPartialObject(objectName, {
+      ...options,
+      offset: 0,
+      length: 0,
+    });
   }
 
   /**
@@ -374,18 +409,22 @@ export class Client {
    */
   public async getPartialObject(
     objectName: string,
-    { offset, length, ...options }: {
+    {
+      offset,
+      length,
+      ...options
+    }: {
       offset: number;
       length: number;
       bucketName?: string;
       versionId?: string;
       responseParams?: ResponseOverrideParams;
-    },
+    }
   ): Promise<Response> {
     const bucketName = this.getBucketName(options);
     if (!isValidObjectName(objectName)) {
       throw new errors.InvalidObjectNameError(
-        `Invalid object name: ${objectName}`,
+        `Invalid object name: ${objectName}`
       );
     }
 
@@ -400,7 +439,7 @@ export class Client {
         offset = 0;
       }
       if (length) {
-        range += `${(+length + offset) - 1}`;
+        range += `${+length + offset - 1}`;
       }
       headers.set("Range", range);
       statusCode = 206; // HTTP 206 "Partial Content"
@@ -431,16 +470,22 @@ export class Client {
   getPresignedUrl(
     method: "GET" | "PUT" | "HEAD" | "DELETE",
     objectName: string,
-    options: { bucketName?: string; parameters?: Record<string, string>; expirySeconds?: number; requestDate?: Date } =
-      {},
+    options: {
+      bucketName?: string;
+      parameters?: Record<string, string>;
+      expirySeconds?: number;
+      requestDate?: Date;
+    } = {}
   ): Promise<string> {
     if (!this.accessKey) {
       throw new errors.AccessKeyRequiredError(
-        `Presigned ${method} URLs cannot be generated for anonymous requests. Specify an accessKey and secretKey.`,
+        `Presigned ${method} URLs cannot be generated for anonymous requests. Specify an accessKey and secretKey.`
       );
     }
     if (!isValidObjectName(objectName)) {
-      throw new errors.InvalidObjectNameError(`Invalid object name: ${objectName}`);
+      throw new errors.InvalidObjectNameError(
+        `Invalid object name: ${objectName}`
+      );
     }
     const { headers, path } = this.buildRequestOptions({
       objectName,
@@ -476,14 +521,17 @@ export class Client {
       responseParams?: ResponseOverrideParams;
       expirySeconds?: number;
       requestDate?: Date;
-    } = {},
+    } = {}
   ) {
     const { versionId, responseParams, ...otherOptions } = options;
     const parameters: Record<string, string> = {
       ...responseParams,
       ...(versionId ? { versionId } : {}),
     };
-    return this.getPresignedUrl("GET", objectName, { parameters, ...otherOptions });
+    return this.getPresignedUrl("GET", objectName, {
+      parameters,
+      ...otherOptions,
+    });
   }
 
   /**
@@ -503,15 +551,20 @@ export class Client {
        * This will not affect the shape of the result, just its efficiency.
        */
       pageSize?: number;
-    } = {},
+    } = {}
   ): AsyncGenerator<S3Object, void, undefined> {
-    for await (const result of this.listObjectsGrouped({ ...options, delimiter: "" })) {
+    for await (const result of this.listObjectsGrouped({
+      ...options,
+      delimiter: "",
+    })) {
       // Since we didn't specify a delimiter, listObjectsGrouped() should only return
       // actual object keys, not any CommonPrefix groupings.
       if (result.type === "Object") {
         yield result;
       } else {
-        throw new Error(`Unexpected result from listObjectsGrouped(): ${result}`);
+        throw new Error(
+          `Unexpected result from listObjectsGrouped(): ${result}`
+        );
       }
     }
   }
@@ -521,32 +574,34 @@ export class Client {
    *
    * See https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-prefixes.html
    */
-  public async *listObjectsGrouped(
-    options: {
-      delimiter: string;
-      prefix?: string;
-      bucketName?: string;
-      /** Don't return more than this many results in total. Default: unlimited. */
-      maxResults?: number;
-      /**
-       * How many keys to retrieve per HTTP request (default: 1000)
-       * This is a maximum; sometimes fewer keys will be returned.
-       * This will not affect the shape of the result, just its efficiency.
-       */
-      pageSize?: number;
-    },
-  ): AsyncGenerator<S3Object | CommonPrefix, void, undefined> {
+  public async *listObjectsGrouped(options: {
+    delimiter: string;
+    prefix?: string;
+    bucketName?: string;
+    /** Don't return more than this many results in total. Default: unlimited. */
+    maxResults?: number;
+    /**
+     * How many keys to retrieve per HTTP request (default: 1000)
+     * This is a maximum; sometimes fewer keys will be returned.
+     * This will not affect the shape of the result, just its efficiency.
+     */
+    pageSize?: number;
+  }): AsyncGenerator<S3Object | CommonPrefix, void, undefined> {
     const bucketName = this.getBucketName(options);
     let continuationToken = "";
     const pageSize = options.pageSize ?? 1_000;
     if (pageSize < 1 || pageSize > 1_000) {
-      throw new errors.InvalidArgumentError("pageSize must be between 1 and 1,000.");
+      throw new errors.InvalidArgumentError(
+        "pageSize must be between 1 and 1,000."
+      );
     }
     let resultCount = 0; // Count the total number of results
 
     while (true) {
       // How many results to fetch in the next request:
-      const maxKeys = options.maxResults ? Math.min(pageSize, options.maxResults - resultCount) : pageSize;
+      const maxKeys = options.maxResults
+        ? Math.min(pageSize, options.maxResults - resultCount)
+        : pageSize;
       if (maxKeys === 0) {
         return;
       }
@@ -560,7 +615,9 @@ export class Client {
           prefix: options.prefix ?? "",
           delimiter: options.delimiter,
           "max-keys": String(maxKeys),
-          ...(continuationToken ? { "continuation-token": continuationToken } : {}),
+          ...(continuationToken
+            ? { "continuation-token": continuationToken }
+            : {}),
         },
         returnBody: true,
       });
@@ -572,7 +629,9 @@ export class Client {
         throw new Error(`Unexpected response: ${responseText}`);
       }
       // If a delimiter was specified, first return any common prefixes from this page of results:
-      const commonPrefixesElement = root.children.find((c) => c.name === "CommonPrefixes");
+      const commonPrefixesElement = root.children.find(
+        (c) => c.name === "CommonPrefixes"
+      );
       const toYield: Array<S3Object | CommonPrefix> = [];
       if (commonPrefixesElement) {
         for (const prefixElement of commonPrefixesElement.children) {
@@ -584,13 +643,27 @@ export class Client {
         }
       }
       // Now return all regular object keys found in the result:
-      for (const objectElement of root.children.filter((c) => c.name === "Contents")) {
+      for (const objectElement of root.children.filter(
+        (c) => c.name === "Contents"
+      )) {
         toYield.push({
           type: "Object",
-          key: objectElement.children.find((c) => c.name === "Key")?.content ?? "",
-          etag: sanitizeETag(objectElement.children.find((c) => c.name === "ETag")?.content ?? ""),
-          size: parseInt(objectElement.children.find((c) => c.name === "Size")?.content ?? "", 10),
-          lastModified: new Date(objectElement.children.find((c) => c.name === "LastModified")?.content ?? "invalid"),
+          key:
+            decodeXMLObjectKey(
+              objectElement.children.find((c) => c.name === "Key")?.content
+            ) ?? "",
+          etag: sanitizeETag(
+            objectElement.children.find((c) => c.name === "ETag")?.content ?? ""
+          ),
+          size: parseInt(
+            objectElement.children.find((c) => c.name === "Size")?.content ??
+              "",
+            10
+          ),
+          lastModified: new Date(
+            objectElement.children.find((c) => c.name === "LastModified")
+              ?.content ?? "invalid"
+          ),
         });
         resultCount++;
       }
@@ -605,12 +678,17 @@ export class Client {
       for (const entry of toYield) {
         yield entry;
       }
-      const isTruncated = root.children.find((c) => c.name === "IsTruncated")?.content === "true";
+      const isTruncated =
+        root.children.find((c) => c.name === "IsTruncated")?.content === "true";
       if (isTruncated) {
         // There are more results.
-        const nextContinuationToken = root.children.find((c) => c.name === "NextContinuationToken")?.content;
+        const nextContinuationToken = root.children.find(
+          (c) => c.name === "NextContinuationToken"
+        )?.content;
         if (!nextContinuationToken) {
-          throw new Error("Unexpectedly missing continuation token, but server said there are more results.");
+          throw new Error(
+            "Unexpectedly missing continuation token, but server said there are more results."
+          );
         }
         continuationToken = nextContinuationToken;
       } else {
@@ -633,12 +711,12 @@ export class Client {
        * This is a minimum; larger part sizes may be required for large uploads or if the total size is unknown.
        */
       partSize?: number;
-    },
+    }
   ): Promise<UploadedObjectInfo> {
     const bucketName = this.getBucketName(options);
     if (!isValidObjectName(objectName)) {
       throw new errors.InvalidObjectNameError(
-        `Invalid object name: ${objectName}`,
+        `Invalid object name: ${objectName}`
       );
     }
 
@@ -657,7 +735,7 @@ export class Client {
       stream = streamOrData;
     } else {
       throw new errors.InvalidArgumentError(
-        `Invalid stream/data type provided.`,
+        `Invalid stream/data type provided.`
       );
     }
 
@@ -665,12 +743,16 @@ export class Client {
     if (options?.size !== undefined) {
       if (size !== undefined && options?.size !== size) {
         throw new errors.InvalidArgumentError(
-          `size was specified (${options.size}) but doesn't match auto-detected size (${size}).`,
+          `size was specified (${options.size}) but doesn't match auto-detected size (${size}).`
         );
       }
-      if (typeof options.size !== "number" || options.size < 0 || isNaN(options.size)) {
+      if (
+        typeof options.size !== "number" ||
+        options.size < 0 ||
+        isNaN(options.size)
+      ) {
         throw new errors.InvalidArgumentError(
-          `invalid size specified: ${options.size}`,
+          `invalid size specified: ${options.size}`
         );
       } else {
         size = options.size;
@@ -680,9 +762,13 @@ export class Client {
     // Determine the part size, if we may need to do a multi-part upload.
     const partSize = options?.partSize ?? this.calculatePartSize(size);
     if (partSize < minimumPartSize) {
-      throw new errors.InvalidArgumentError(`Part size should be greater than 5MB`);
+      throw new errors.InvalidArgumentError(
+        `Part size should be greater than 5MB`
+      );
     } else if (partSize > maximumPartSize) {
-      throw new errors.InvalidArgumentError(`Part size should be less than 6MB`);
+      throw new errors.InvalidArgumentError(
+        `Part size should be less than 6MB`
+      );
     }
 
     // s3 requires that all non-end chunks be at least `this.partSize`,
@@ -727,7 +813,7 @@ export class Client {
     let partSize = 64 * 1024 * 1024; // Start with 64MB
     while (true) {
       // If partSize is big enough to accomodate the object size, then use it.
-      if ((partSize * 10_000) > size) {
+      if (partSize * 10_000 > size) {
         return partSize;
       }
       // Try part sizes as 64MB, 80MB, 96MB etc.
@@ -740,12 +826,12 @@ export class Client {
    */
   public async statObject(
     objectName: string,
-    options?: { bucketName?: string; versionId?: string },
+    options?: { bucketName?: string; versionId?: string }
   ): Promise<ObjectStatus> {
     const bucketName = this.getBucketName(options);
     if (!isValidObjectName(objectName)) {
       throw new errors.InvalidObjectNameError(
-        `Invalid object name: ${objectName}`,
+        `Invalid object name: ${objectName}`
       );
     }
     const query: Record<string, string> = {};
@@ -777,7 +863,9 @@ export class Client {
       key: objectName,
       size: parseInt(response.headers.get("content-length") ?? "", 10),
       metadata,
-      lastModified: new Date(response.headers.get("Last-Modified") ?? "error: missing last modified"),
+      lastModified: new Date(
+        response.headers.get("Last-Modified") ?? "error: missing last modified"
+      ),
       versionId: response.headers.get("x-amz-version-id") || null,
       etag: sanitizeETag(response.headers.get("ETag") ?? ""),
     };
@@ -787,20 +875,29 @@ export class Client {
    * Copy an object into this bucket
    */
   public async copyObject(
-    source: { sourceBucketName?: string; sourceKey: string; sourceVersionId?: string },
+    source: {
+      sourceBucketName?: string;
+      sourceKey: string;
+      sourceVersionId?: string;
+    },
     objectName: string,
-    options?: { bucketName?: string },
+    options?: { bucketName?: string }
   ): Promise<CopiedObjectInfo> {
     const bucketName = this.getBucketName(options);
     const sourceBucketName = source.sourceBucketName ?? bucketName;
     if (!isValidObjectName(objectName)) {
-      throw new errors.InvalidObjectNameError(`Invalid object name: ${objectName}`);
+      throw new errors.InvalidObjectNameError(
+        `Invalid object name: ${objectName}`
+      );
     }
 
     // The "x-amz-copy-source" header is like "bucket/objectkey" with an optional version ID.
     // e.g. "awsexamplebucket/reports/january.pdf?versionId=QUpfdndhfd8438MNFDN93jdnJFkdmqnh893"
-    let xAmzCopySource = `${sourceBucketName}/${source.sourceKey}`;
-    if (source.sourceVersionId) xAmzCopySource += `?versionId=${source.sourceVersionId}`;
+    let xAmzCopySource = `${sourceBucketName}/${encodeObjectName(
+      source.sourceKey
+    )}`;
+    if (source.sourceVersionId)
+      xAmzCopySource += `?versionId=${source.sourceVersionId}`;
 
     const response = await this.makeRequest({
       method: "PUT",
@@ -817,14 +914,20 @@ export class Client {
     if (!root || root.name !== "CopyObjectResult") {
       throw new Error(`Unexpected response: ${responseText}`);
     }
-    const etagString = root.children.find((c) => c.name === "ETag")?.content ?? "";
-    const lastModifiedString = root.children.find((c) => c.name === "LastModified")?.content;
+    const etagString =
+      root.children.find((c) => c.name === "ETag")?.content ?? "";
+    const lastModifiedString = root.children.find(
+      (c) => c.name === "LastModified"
+    )?.content;
     if (lastModifiedString === undefined) {
-      throw new Error("Unable to find <LastModified>...</LastModified> from the server.");
+      throw new Error(
+        "Unable to find <LastModified>...</LastModified> from the server."
+      );
     }
 
     return {
-      copySourceVersionId: response.headers.get("x-amz-copy-source-version-id") || null,
+      copySourceVersionId:
+        response.headers.get("x-amz-copy-source-version-id") || null,
       etag: sanitizeETag(etagString),
       lastModified: new Date(lastModifiedString),
       versionId: response.headers.get("x-amz-version-id") || null,
